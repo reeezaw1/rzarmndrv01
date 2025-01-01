@@ -22,7 +22,6 @@ from telegram.ext import (
 from flask import Flask, request, jsonify, send_file
 import queue
 
-
 load_dotenv()
 
 # Enable logging
@@ -37,7 +36,10 @@ bot = Bot(os.environ.get("TELEGRAM_BOT_TOKEN"))
 def connect_db():
     try:
         conn = psycopg2.connect(
-            os.environ.get("DATABASE_URL"), sslmode='require'
+            host=os.environ.get("DB_HOST"),
+            database=os.environ.get("DB_NAME"),
+            user=os.environ.get("DB_USER"),
+            password=os.environ.get("DB_PASSWORD")
         )
         return conn
     except Exception as e:
@@ -179,18 +181,18 @@ def create_reminder(user_id, task_name, description, schedule_type, schedule_dat
             ]
             update.message.reply_text("Welcome back!",
             reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True))
-
         if not user_data or user_data[2] is None:
-             return set_timezone(update, context)
+            return set_timezone(update, context)
 
         return ConversationHandler.END
+
 
     def add_reminder_start(update: Update, context: CallbackContext):
         if update.message.text == "Create Reminder":
            update.message.reply_text("Okay, let's create a reminder. What is the task name?")
            return TASK_NAME
         else:
-           return ConversationHandler.END
+             return ConversationHandler.END
 
     def add_reminder_task_name(update: Update, context: CallbackContext):
         context.user_data["task_name"] = update.message.text
@@ -267,6 +269,7 @@ def create_reminder(user_id, task_name, description, schedule_type, schedule_dat
         else:
             update.message.reply_text("Reminder creation cancelled.", reply_markup=ReplyKeyboardRemove())
         return ConversationHandler.END
+    
 
     def list_reminders(update: Update, context: CallbackContext):
       if update.message.text == "List Reminders":
@@ -282,7 +285,7 @@ def create_reminder(user_id, task_name, description, schedule_type, schedule_dat
                 update.message.reply_text("You don't have any reminders yet.")
             return ConversationHandler.END
         else:
-            return ConversationHandler.END
+           return ConversationHandler.END
 
 
     def error(update: Update, context: CallbackContext, bot_obj):
@@ -370,7 +373,9 @@ def check_reminders():
                 if (current_time.hour == reminder_time.hour and current_time.minute == reminder_time.minute):
                     send_telegram_notification(user_id, task_name, description)
         except Exception as e:
-            logging.error(f"Error processing reminder {reminder_id}: {e}")
+           logging.error(f"Error processing reminder {reminder_id}: {e}")
+
+
 def start_scheduler():
     scheduler = BackgroundScheduler(timezone=pytz.utc)
     scheduler.add_job(check_reminders, 'interval', minutes=1)
@@ -381,8 +386,6 @@ def start_scheduler():
             time.sleep(10)
     except (KeyboardInterrupt, SystemExit):
         scheduler.shutdown()
-
-
 # Flask API Setup
 app = Flask(__name__)
 
@@ -481,9 +484,8 @@ def main():
     dispatcher.add_error_handler(lambda update, context, bot_obj: error(update, context, bot_obj))
     
     updater.start_polling()
-    
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=True, use_reloader=False)
 
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=True, use_reloader=False)
 
 if __name__ == '__main__':
     main()
