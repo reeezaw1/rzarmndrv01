@@ -1,0 +1,84 @@
+<!-- index.html -->
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Reminder App</title>
+    <style>
+        body { font-family: sans-serif; margin: 20px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; }
+    </style>
+</head>
+<body>
+    <h1>Your Reminders</h1>
+    <div id="reminder-container">
+        <label for="telegramId">Telegram ID:</label><br>
+        <input type="text" id="telegramId" required><br>
+        <label for="secretToken">Secret Token:</label><br>
+        <input type="text" id="secretToken" required><br><br>
+        <button onclick="fetchReminders()">Get Reminders</button><br><br>
+        <table id="reminders-table" style="display: none;">
+            <thead>
+                <tr>
+                    <th>Task</th>
+                    <th>Schedule Type</th>
+                    <th>Schedule Data</th>
+                    <th>Status</th>
+                    <th>Created At</th>
+                </tr>
+            </thead>
+            <tbody id="reminders-list"></tbody>
+        </table>
+    </div>
+    <script>
+        async function fetchReminders() {
+            const telegramId = document.getElementById('telegramId').value;
+            const secretToken = document.getElementById('secretToken').value;
+            const table = document.getElementById("reminders-table")
+            const tbody = document.getElementById('reminders-list');
+            tbody.innerHTML = "";
+
+            const url = '/api/reminders';
+            const headers = {
+                'X-Telegram-ID': telegramId,
+                'X-Secret-Token': secretToken
+            };
+
+            try {
+                const response = await fetch(url, { headers });
+                if (!response.ok) {
+                   if(response.status === 401) {
+                        alert('Unauthorized. Check your credentials')
+                   } else if(response.status === 404){
+                        alert('No reminders found')
+                   } else {
+                         alert('Error Fetching Data')
+                    }
+                    return
+                }
+                const data = await response.json();
+                console.log(data);
+                if (data.reminders && data.reminders.length > 0) {
+                    table.style.display = 'table';
+                    data.reminders.forEach(reminder => {
+                        const row = `<tr>
+                                     <td>${reminder.task_name}</td>
+                                    <td>${reminder.schedule_type}</td>
+                                     <td>${JSON.stringify(reminder.schedule_data)}</td>
+                                    <td>${reminder.status}</td>
+                                     <td>${reminder.created_at}</td>
+                                </tr>`;
+                        tbody.innerHTML += row;
+                    });
+                } else {
+                    alert("No reminders found.")
+                }
+            } catch (error) {
+                console.error("Error fetching data:", error);
+                alert("Error fetching data. Check console for details.")
+            }
+        }
+    </script>
+</body>
+</html>
