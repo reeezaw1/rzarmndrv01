@@ -36,9 +36,7 @@ bot = Bot(os.environ.get("TELEGRAM_BOT_TOKEN"))
 # Connect to Database
 def connect_db():
     try:
-        conn = psycopg2.connect(
-          os.environ.get("DATABASE_URL"), sslmode='require'
-        )
+        conn = psycopg2.connect(os.environ.get("DATABASE_URL"), sslmode='require')
         return conn
     except Exception as e:
         logging.error(f"Database connection error: {e}")
@@ -86,15 +84,15 @@ def create_user(telegram_id):
     
 
 # Function to create reminder
-def create_reminder(user_id, task_name, description, schedule_type, schedule_data):
+def create_reminder(user_id, task_name, description, schedule_type, schedule_data, time_zone):
     conn = connect_db()
     if not conn:
         return None
     try:
         cur = conn.cursor()
         cur.execute(
-            "INSERT INTO reminders (user_id, task_name, description, schedule_type, schedule_data) VALUES (%s, %s, %s, %s, %s)",
-            (user_id, task_name, description, json.dumps(schedule_type), json.dumps(schedule_data)),
+            "INSERT INTO reminders (user_id, task_name, description, schedule_type, schedule_data, time_zone) VALUES (%s, %s, %s, %s, %s, %s)",
+            (user_id, task_name, description, json.dumps(schedule_type), json.dumps(schedule_data), time_zone),
         )
         conn.commit()
         cur.close()
@@ -104,13 +102,6 @@ def create_reminder(user_id, task_name, description, schedule_type, schedule_dat
         return False
     finally:
         conn.close()
-    
-    
-    
-    
-    
-    
-    
 
     def delete_reminder(reminder_id):
         conn = connect_db()
@@ -173,6 +164,7 @@ def create_reminder(user_id, task_name, description, schedule_type, schedule_dat
     def start(update: Update, context: CallbackContext):
         telegram_id = update.effective_user.id
         user_data = get_user_data(telegram_id)
+
         if not user_data:
             secret_token = create_user(telegram_id)
             update.message.reply_text(
@@ -196,7 +188,7 @@ def create_reminder(user_id, task_name, description, schedule_type, schedule_dat
             update.message.reply_text("Okay, let's create a reminder. What is the task name?")
             return TASK_NAME
         else:
-           return ConversationHandler.END
+            return ConversationHandler.END
 
     def add_reminder_task_name(update: Update, context: CallbackContext):
         context.user_data["task_name"] = update.message.text
@@ -231,31 +223,25 @@ def create_reminder(user_id, task_name, description, schedule_type, schedule_dat
         schedule_data_text = update.message.text
         schedule_data = {}
         try:
-           user_id = update.effective_user.id
-           user_data = get_user_data(user_id)
-           timezone = pytz.timezone(user_data[2])
-           if schedule_type == "once":
-               reminder_date_time = datetime.strptime(schedule_data_text, "%Y-%m-%d %H:%M")
-               localized_reminder_date_time = timezone.localize(reminder_date_time)
-               schedule_data = {"date_time": localized_reminder_date_time.astimezone(pytz.utc).isoformat()}
-           elif schedule_type == "daily":
-               schedule_data = {"time": datetime.strptime(schedule_data_text, "%H:%M").strftime("%H:%M")}
-           elif schedule_type == "weekly":
-               days, time = schedule_data_text.split(",")
-               schedule_data = {"days": [day.strip().capitalize() for day in days.split(",")], "time": datetime.strptime(time.strip(), "%H:%M").strftime("%H:%M")}
-           elif schedule_type == "interval":
-               interval_number, time = schedule_data_text.split(",")
-               schedule_data = {"interval": int(interval_number.strip()), "time": datetime.strptime(time.strip(), "%H:%M").strftime("%H:%M")}
-
+            if schedule_type == "once":
+                schedule_data = {"date_time": datetime.strptime(schedule_data_text, "%Y-%m-%d %H:%M").isoformat()}
+            elif schedule_type == "daily":
+                schedule_data = {"time": datetime.strptime(schedule_data_text, "%H:%M").strftime("%H:%M")}
+            elif schedule_type == "weekly":
+                days, time = schedule_data_text.split(",")
+                schedule_data = {"days": [day.strip().capitalize() for day in days.split(",")], "time": datetime.strptime(time.strip(), "%H:%M").strftime("%H:%M")}
+            elif schedule_type == "interval":
+                interval_number, time = schedule_data_text.split(",")
+                schedule_data = {"interval": int(interval_number.strip()), "time": datetime.strptime(time.strip(), "%H:%M").strftime("%H:%M")}
         except Exception as e:
-           update.message.reply_text("Invalid schedule data format.")
-           return ConversationHandler.END
-    
+            update.message.reply_text("Invalid schedule data format.")
+            return ConversationHandler.END
+
         context.user_data["schedule_data"] = schedule_data
 
         reply_keyboard = [["Yes", "No"]]
         update.message.reply_text(f"Task Name: {context.user_data['task_name']}\nType: {context.user_data['schedule_type']}\nSchedule: {schedule_data_text}\n Confirm?",
-           reply_markup=ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=True, resize_keyboard=True)
+            reply_markup=ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=True)
         )
         return ADD_REMINDER_CONFIRM
 
@@ -274,22 +260,22 @@ def create_reminder(user_id, task_name, description, schedule_type, schedule_dat
             update.message.reply_text("Reminder creation cancelled.", reply_markup=ReplyKeyboardRemove())
         return ConversationHandler.END
 
-
     def list_reminders(update: Update, context: CallbackContext):
-        if update.message.text == "List Reminders":
+      if update.message.text == "List Reminders":
             user_id = update.effective_user.id
             reminders = get_reminders(user_id)
 
             if reminders:
                 message = "Your reminders:\n"
                 for reminder in reminders:
-                    message += f"- {reminder[2]} ({json.loads(reminder[4])}, {json.dumps(json.loads(reminder[5]))})\n"
+                     message += f"- {reminder[2]} ({json.loads(reminder[4])}, {json.dumps(json.loads(reminder[5]))})\n"
+                    
                 update.message.reply_text(message)
             else:
                 update.message.reply_text("You don't have any reminders yet.")
             return ConversationHandler.END
         else:
-            return ConversationHandler.END
+           return ConversationHandler.END
 
 
     def error(update: Update, context: CallbackContext, bot_obj):
@@ -298,8 +284,8 @@ def create_reminder(user_id, task_name, description, schedule_type, schedule_dat
         try:
            bot_obj.send_message(chat_id=update.effective_chat.id, text=f"An error ocurred: {context.error}")
         except Exception as e:
-             logging.warning(f"Error sending message about the error to user: {e}")
-    
+            logging.warning(f"Error sending message about the error to user: {e}")
+
 
 # Scheduler Functions
 def get_all_reminders():
@@ -352,7 +338,6 @@ def check_reminders():
             schedule_type = json.loads(schedule_type)
             schedule_data = json.loads(schedule_data)
             now_utc = datetime.now(pytz.utc)
-            user_timezone = pytz.timezone(time_zone)
 
             if schedule_type == "once":
                  reminder_date_time = datetime.fromisoformat(schedule_data["date_time"]).astimezone(pytz.utc)
@@ -361,23 +346,23 @@ def check_reminders():
                      update_reminder_status(reminder_id, 'completed')
             elif schedule_type == "daily":
                 reminder_time = datetime.strptime(schedule_data['time'], "%H:%M").time()
-                current_time = now_utc.astimezone(user_timezone).time()
+                current_time = now_utc.time()
                 if (current_time.hour == reminder_time.hour and current_time.minute == reminder_time.minute):
                     send_telegram_notification(user_id, task_name, description)
             elif schedule_type == "weekly":
                  current_day = now_utc.strftime("%a").capitalize()
                  reminder_days = schedule_data.get('days')
                  reminder_time = datetime.strptime(schedule_data['time'], "%H:%M").time()
-                 current_time = now_utc.astimezone(user_timezone).time()
+                 current_time = now_utc.time()
                  if current_day in reminder_days and current_time.hour == reminder_time.hour and current_time.minute == reminder_time.minute:
                      send_telegram_notification(user_id, task_name, description)
             elif schedule_type == "interval":
                 reminder_time = datetime.strptime(schedule_data['time'], "%H:%M").time()
-                current_time = now_utc.astimezone(user_timezone).time()
+                current_time = now_utc.time()
                 if (current_time.hour == reminder_time.hour and current_time.minute == reminder_time.minute):
                     send_telegram_notification(user_id, task_name, description)
         except Exception as e:
-            logging.error(f"Error processing reminder %s: %s",reminder_id, e)
+             logging.error(f"Error processing reminder {reminder_id}: {e}")
 
 
 def start_scheduler():
@@ -385,12 +370,12 @@ def start_scheduler():
     scheduler.add_job(check_reminders, 'interval', minutes=1)
     scheduler.start()
     logging.info("Scheduler started in Main Thread")
+
     try:
         while True:
             time.sleep(10)
     except (KeyboardInterrupt, SystemExit):
         scheduler.shutdown()
-
 
 # Flask API Setup
 app = Flask(__name__)
@@ -465,13 +450,13 @@ def get_user_reminders():
         return jsonify({'message': 'No reminders found'}), 404
 
 def main():
-     # Start Scheduler
+    # Start Scheduler
     start_scheduler()
-    
+
     # Start Telegram Bot
     updater = Updater(os.environ.get("TELEGRAM_BOT_TOKEN"))
     dispatcher = Dispatcher(updater, None)
-
+    
     # Conversation handler for adding reminders
     add_reminder_conv_handler = ConversationHandler(
         entry_points=[MessageHandler(Filters.text & ~Filters.command, add_reminder_start)],
@@ -488,9 +473,9 @@ def main():
     dispatcher.add_handler(CommandHandler("start", start))
     dispatcher.add_handler(CommandHandler("language", lambda update, context: context.bot.send_message(chat_id=update.effective_chat.id, text="This functionality is still not implemented.")))
     dispatcher.add_error_handler(lambda update, context, bot_obj: error(update, context, bot_obj))
-        
+    
     updater.start_polling()
-
+    
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=True, use_reloader=False)
 
 if __name__ == '__main__':
