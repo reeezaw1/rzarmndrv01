@@ -9,19 +9,18 @@ from datetime import datetime
 import psycopg2
 from apscheduler.schedulers.background import BackgroundScheduler
 from dotenv import load_dotenv
-from telegram import Bot, Update
+from telegram import Bot, Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import (
     Updater,
     CommandHandler,
     MessageHandler,
-    Filters,
     ConversationHandler,
     CallbackContext,
+    Filters,
     Dispatcher
 )
 from flask import Flask, request, jsonify, send_file
 import queue
-
 
 load_dotenv()
 
@@ -36,9 +35,7 @@ bot = Bot(os.environ.get("TELEGRAM_BOT_TOKEN"))
 # Connect to Database
 def connect_db():
     try:
-        conn = psycopg2.connect(
-            os.environ.get("DATABASE_URL"), sslmode='require'
-        )
+        conn = psycopg2.connect(os.environ.get("DATABASE_URL"), sslmode='require')
         return conn
     except Exception as e:
         logging.error(f"Database connection error: {e}")
@@ -64,7 +61,6 @@ def get_user_data(telegram_id):
     finally:
         conn.close()
 
-
 # Function to create user
 def create_user(telegram_id):
     conn = connect_db()
@@ -82,7 +78,6 @@ def create_user(telegram_id):
         return None
     finally:
         conn.close()
-    
 
 # Function to create reminder
 def create_reminder(user_id, task_name, description, schedule_data, time_zone):
@@ -121,7 +116,6 @@ def get_reminders(user_id):
     finally:
         conn.close()
 
-
 def start(update: Update, context: CallbackContext):
     telegram_id = update.effective_user.id
     user_data = get_user_data(telegram_id)
@@ -143,7 +137,8 @@ def add_reminder_start(update: Update, context: CallbackContext):
 
 def add_reminder_task_name(update: Update, context: CallbackContext):
     context.user_data["task_name"] = update.message.text
-    update.message.reply_text("What is the date and time (YYYY-MM-DD HH:MM, e.g., 2024-09-15 14:30)?")
+    update.message.reply_text(
+        "What is the date and time (YYYY-MM-DD HH:MM, e.g., 2024-09-15 14:30)?")
     return SCHEDULE_DATA
 
 def add_reminder_schedule_data(update: Update, context: CallbackContext):
@@ -166,12 +161,11 @@ def add_reminder_confirmation(update: Update, context: CallbackContext):
     else:
         update.message.reply_text("Reminder creation cancelled.", reply_markup=ReplyKeyboardRemove())
     return ConversationHandler.END
-
 def error(update: Update, context: CallbackContext, bot_obj):
     """Log Errors caused by Updates."""
     logging.warning(f'Update "{update}" caused error "{context.error}"')
     try:
-       bot_obj.send_message(chat_id=update.effective_chat.id, text=f"An error ocurred: {context.error}")
+        bot_obj.send_message(chat_id=update.effective_chat.id, text=f"An error ocurred: {context.error}")
     except Exception as e:
         logging.warning(f"Error sending message about the error to user: {e}")
 
@@ -223,14 +217,16 @@ def check_reminders():
         return
     for reminder_id, user_id, task_name, description, schedule_type, schedule_data, time_zone in reminders:
         try:
-            schedule_data = json.loads(schedule_data)
-            now_utc = datetime.now(pytz.utc)
-            reminder_date_time = datetime.fromisoformat(schedule_data["date_time"]).astimezone(pytz.utc)
-            if now_utc >= reminder_date_time:
-                send_telegram_notification(user_id, task_name, description)
-                update_reminder_status(reminder_id, 'completed')
+             schedule_data = json.loads(schedule_data)
+            
+             now_utc = datetime.now(pytz.utc)
+             reminder_date_time = datetime.fromisoformat(schedule_data["date_time"]).astimezone(pytz.utc)
+             if now_utc >= reminder_date_time:
+                    send_telegram_notification(user_id, task_name, description)
+                    update_reminder_status(reminder_id, 'completed')
         except Exception as e:
-            logging.error(f"Error processing reminder {reminder_id}: {e}")
+             logging.error(f"Error processing reminder {reminder_id}: {e}")
+
 
 def start_scheduler():
     scheduler = BackgroundScheduler(timezone=pytz.utc)
@@ -247,6 +243,39 @@ def start_scheduler():
 
 # Flask API Setup
 app = Flask(__name__)
+
+# Helper function to check if a user exists
+def get_user_data_flask(telegram_id):
+    conn = connect_db()
+    if not conn:
+        return None
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM users WHERE telegram_id = %s", (telegram_id,))
+        user_data = cur.fetchone()
+        cur.close()
+        return user_data
+    except Exception as e:
+        return None
+    finally:
+        conn.close()
+
+
+# Helper function to get the reminders of the user
+def get_reminders_flask(user_id):
+    conn = connect_db()
+    if not conn:
+        return None
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM reminders WHERE user_id = %s", (user_id,))
+        reminders = cur.fetchall()
+        cur.close()
+        return reminders
+    except Exception as e:
+        return None
+    finally:
+        conn.close()
 
 @app.route('/')
 def index():
@@ -284,33 +313,32 @@ def get_user_reminders():
     else:
         return jsonify({'message': 'No reminders found'}), 404
 
-
 def main():
-    # Start Scheduler
+     # Start Scheduler
     start_scheduler()
 
     # Start Telegram Bot
     updater = Updater(os.environ.get("TELEGRAM_BOT_TOKEN"))
     dispatcher = Dispatcher(updater, None)
-
+    
     # Conversation handler for adding reminders
     add_reminder_conv_handler = ConversationHandler(
         entry_points=[CommandHandler('add', add_reminder_start)],
         states={
             TASK_NAME: [MessageHandler(Filters.text & ~Filters.command, add_reminder_task_name)],
+           
             SCHEDULE_DATA: [MessageHandler(Filters.text & ~Filters.command, add_reminder_schedule_data)],
             ADD_REMINDER_CONFIRM: [MessageHandler(Filters.text & ~Filters.command, add_reminder_confirmation)],
         },
         fallbacks=[CommandHandler('cancel', lambda update, context: update.message.reply_text('Cancelled', reply_markup=ReplyKeyboardRemove()))],
     )
     dispatcher.add_handler(add_reminder_conv_handler)
-
     dispatcher.add_handler(CommandHandler("start", start))
     dispatcher.add_error_handler(lambda update, context, bot_obj: error(update, context, bot_obj))
-
+    
     updater.start_polling()
-
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=True, use_reloader=False)
+
 
 if __name__ == '__main__':
     main()
