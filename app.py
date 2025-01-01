@@ -20,7 +20,6 @@ from telegram.ext import (
     Dispatcher
 )
 from flask import Flask, request, jsonify, send_file
-from threading import Thread
 import queue
 
 load_dotenv()
@@ -232,7 +231,7 @@ def error(update: Update, context: CallbackContext, bot_obj):
     """Log Errors caused by Updates."""
     logging.warning(f'Update "{update}" caused error "{context.error}"')
     try:
-       bot_obj.send_message(chat_id=update.effective_chat.id, text=f"An error ocurred: {context.error}")
+        bot_obj.send_message(chat_id=update.effective_chat.id, text=f"An error ocurred: {context.error}")
     except Exception as e:
         logging.warning(f"Error sending message about the error to user: {e}")
 
@@ -244,7 +243,7 @@ def get_all_reminders():
         return None
     try:
         cur = conn.cursor()
-        cur.execute("SELECT id, user_id, task_name, description, schedule_type, schedule_data FROM reminders WHERE status = 'active'")
+        cur.execute("SELECT id, user_id, task_name, description, schedule_type, schedule_data, time_zone FROM reminders WHERE status = 'active'")
         reminders = cur.fetchall()
         cur.close()
         return reminders
@@ -283,12 +282,12 @@ def check_reminders():
     reminders = get_all_reminders()
     if not reminders:
         return
-    for reminder_id, user_id, task_name, description, schedule_type, schedule_data in reminders:
+    for reminder_id, user_id, task_name, description, schedule_type, schedule_data, time_zone in reminders:
         try:
             schedule_type = json.loads(schedule_type)
             schedule_data = json.loads(schedule_data)
             now_utc = datetime.now(pytz.utc)
-
+            user_timezone = pytz.timezone(time_zone)
             if schedule_type == "once":
                  reminder_date_time = datetime.fromisoformat(schedule_data["date_time"]).astimezone(pytz.utc)
                  if now_utc >= reminder_date_time:
@@ -296,19 +295,19 @@ def check_reminders():
                      update_reminder_status(reminder_id, 'completed')
             elif schedule_type == "daily":
                 reminder_time = datetime.strptime(schedule_data['time'], "%H:%M").time()
-                current_time = now_utc.time()
+                current_time = now_utc.astimezone(user_timezone).time()
                 if (current_time.hour == reminder_time.hour and current_time.minute == reminder_time.minute):
                     send_telegram_notification(user_id, task_name, description)
             elif schedule_type == "weekly":
                  current_day = now_utc.strftime("%a").capitalize()
                  reminder_days = schedule_data.get('days')
                  reminder_time = datetime.strptime(schedule_data['time'], "%H:%M").time()
-                 current_time = now_utc.time()
+                 current_time = now_utc.astimezone(user_timezone).time()
                  if current_day in reminder_days and current_time.hour == reminder_time.hour and current_time.minute == reminder_time.minute:
                      send_telegram_notification(user_id, task_name, description)
             elif schedule_type == "interval":
                 reminder_time = datetime.strptime(schedule_data['time'], "%H:%M").time()
-                current_time = now_utc.time()
+                current_time = now_utc.astimezone(user_timezone).time()
                 if (current_time.hour == reminder_time.hour and current_time.minute == reminder_time.minute):
                     send_telegram_notification(user_id, task_name, description)
         except Exception as e:
@@ -316,8 +315,8 @@ def check_reminders():
 
 
 def start_scheduler():
-    scheduler = BackgroundScheduler()
-    scheduler.add_job(check_reminders, 'interval', minutes=1, timezone=pytz.utc)
+    scheduler = BackgroundScheduler(timezone=pytz.utc)
+    scheduler.add_job(check_reminders, 'interval', minutes=1)
     scheduler.start()
     logging.info("Scheduler started in Main Thread")
 
@@ -409,7 +408,7 @@ def main():
 
     # Conversation handler for adding reminders
     add_reminder_conv_handler = ConversationHandler(
-        entry_points=[CommandHandler('add', add_reminder_start)],
+        entry_points=[MessageHandler(Filters.text & ~Filters.command, add_reminder_start)],
         states={
             TASK_NAME: [MessageHandler(Filters.text & ~Filters.command, add_reminder_task_name)],
             SCHEDULE_TYPE: [MessageHandler(Filters.text & ~Filters.command, add_reminder_schedule_type)],
@@ -419,17 +418,12 @@ def main():
         fallbacks=[CommandHandler('cancel', lambda update, context: update.message.reply_text('Cancelled', reply_markup=ReplyKeyboardRemove()))],
     )
     dispatcher.add_handler(add_reminder_conv_handler)
-
+    dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command,list_reminders))
     dispatcher.add_handler(CommandHandler("start", start))
-    dispatcher.add_handler(CommandHandler("list", list_reminders))
-
+    dispatcher.add_handler(CommandHandler("language", lambda update, context: context.bot.send_message(chat_id=update.effective_chat.id, text="This functionality is still not implemented.")))
     dispatcher.add_error_handler(lambda update, context, bot_obj: error(update, context, bot_obj))
     
-    updater.start_webhook(listen="0.0.0.0",
-                                  port=int(os.environ.get('PORT', 5000)),
-                                  url_path = os.environ.get("TELEGRAM_BOT_TOKEN"))
-    
-    updater.bot.set_webhook("https://reminder-app-i8b2.onrender.com/"+ os.environ.get("TELEGRAM_BOT_TOKEN"))
+    updater.start_polling()
 
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=True, use_reloader=False)
 
